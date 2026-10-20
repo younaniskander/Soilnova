@@ -1,0 +1,5 @@
+import { PARAMETER_KEYS, PARAMETER_META, type MeasurementSession } from '../types/domain';
+
+function download(content: string, fileName: string, type: string) { const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = fileName; link.click(); URL.revokeObjectURL(url); }
+export function exportSessionCsv(session: MeasurementSession) { const header = ['session_id', 'recorded_at', 'origin', ...PARAMETER_KEYS]; const rows = session.readings.map((reading) => [session.id, reading.recordedAt, reading.origin, ...PARAMETER_KEYS.map((key) => reading.values[key])]); download([header, ...rows].map((row) => row.join(',')).join('\n'), `${session.id}.csv`, 'text/csv;charset=utf-8'); }
+export function exportSessionJson(session: MeasurementSession) { download(JSON.stringify({ ...session, parameterMetadata: PARAMETER_KEYS.map((key) => PARAMETER_META[key]) }, null, 2), `${session.id}.json`, 'application/json;charset=utf-8'); }

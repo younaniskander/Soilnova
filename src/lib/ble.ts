@@ -1,0 +1,14 @@
+import { decodeSnp1 } from './protocol';
+import type { DecodedPacket } from '../types/protocol';
+
+interface BluetoothRemoteGATTCharacteristicLike { startNotifications: () => Promise<BluetoothRemoteGATTCharacteristicLike>; addEventListener: (type: string, listener: (event: Event) => void) => void; removeEventListener: (type: string, listener: (event: Event) => void) => void; }
+interface BluetoothRemoteGATTServerLike { connected: boolean; connect: () => Promise<BluetoothRemoteGATTServerLike>; disconnect: () => void; getPrimaryService: (uuid: string) => Promise<{ getCharacteristic: (uuid: string) => Promise<BluetoothRemoteGATTCharacteristicLike> }>; }
+interface BluetoothDeviceLike { name?: string; gatt?: BluetoothRemoteGATTServerLike; addEventListener: (type: string, listener: () => void) => void; }
+interface BluetoothLike { requestDevice: (options: { filters: Array<{ services: string[] }> }) => Promise<BluetoothDeviceLike>; }
+
+export class BleService {
+  private device?: BluetoothDeviceLike; private characteristic?: BluetoothRemoteGATTCharacteristicLike; private handler?: (packet: DecodedPacket) => void; private disconnectHandler?: () => void; private errorHandler?: (message: string) => void;
+  constructor(private readonly serviceUuid: string, private readonly characteristicUuid: string) {}
+  async connect(onPacket: (packet: DecodedPacket) => void, onDisconnect: () => void, onError?: (message: string) => void): Promise<string> { const bluetooth = (navigator as Navigator & { bluetooth?: BluetoothLike }).bluetooth; if (!bluetooth) throw new Error('Web Bluetooth is not available in this browser.'); this.handler = onPacket; this.disconnectHandler = onDisconnect; this.errorHandler = onError; this.device = await bluetooth.requestDevice({ filters: [{ services: [this.serviceUuid] }] }); this.device.addEventListener('gattserverdisconnected', () => this.disconnectHandler?.()); const server = await this.device.gatt?.connect(); if (!server) throw new Error('The selected device did not expose a GATT server.'); const service = await server.getPrimaryService(this.serviceUuid); this.characteristic = await service.getCharacteristic(this.characteristicUuid); await this.characteristic.startNotifications(); this.characteristic.addEventListener('characteristicvaluechanged', (event) => { const value = (event as Event & { target: EventTarget & { value?: DataView } }).target.value; if (!value) return; const packetBytes = new Uint8Array(value.byteLength); for (let index = 0; index < value.byteLength; index += 1) packetBytes[index] = value.getUint8(index); const result = decodeSnp1(packetBytes); if (result.ok) this.handler?.(result.packet); else this.errorHandler?.(result.error); }); return this.device.name || 'ESP32 SoilNova device'; }
+  disconnect() { this.device?.gatt?.disconnect(); this.device = undefined; this.characteristic = undefined; }
+}
